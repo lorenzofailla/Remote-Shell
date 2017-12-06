@@ -10,6 +10,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import org.eclipse.swt.SWT;
 import org.eclipse.wb.swt.SWTResourceManager;
@@ -41,7 +43,7 @@ public class MainWindow {
 	private String remoteDevice = "lorenzofailla-home";
 	private String userName = "lorenzofailla";
 	private DatabaseReference shellResponse;
-	
+
 	private DatabaseReference messagesToRemoteDevice;
 
 	private boolean initMsgSent = false;
@@ -51,37 +53,23 @@ public class MainWindow {
 	private String mainTextBoxContent;
 	private ByteArrayOutputStream out = new ByteArrayOutputStream();
 
+	private class BufferFlush extends TimerTask {
+
+		@Override
+		public void run() {
+
+			sendToConsole();
+
+		}
+
+	}
+
 	private class ShellComm extends Thread {
 
-		
-		
 		public ShellComm() {
 		};
-		
-		
 
 		public void run() {
-			// inizia la connessione al database
-			mainTextBoxContent = "Connecting to Firebase Database...";
-
-			Display.getDefault().syncExec(new Runnable() {
-
-				@Override
-				public void run() {
-					text.setText(mainTextBoxContent);
-
-				}
-
-			});
-
-			if (connectToFirebaseDatabase()) {
-				mainTextBoxContent += "\nSuccessfully connected.";
-
-			} else {
-				mainTextBoxContent += "\nConnection error.";
-			}
-
-			refreshTextBox();
 
 			messagesToRemoteDevice = FirebaseDatabase.getInstance()
 					.getReference("/Users/" + userName + "/Devices/" + remoteDevice + "/IncomingCommands");
@@ -92,20 +80,14 @@ public class MainWindow {
 
 				@Override
 				public void onChildRemoved(DataSnapshot snapshot) {
-					// TODO Auto-generated method stub
-
 				}
 
 				@Override
 				public void onChildMoved(DataSnapshot snapshot, String previousChildName) {
-					// TODO Auto-generated method stub
-
 				}
 
 				@Override
 				public void onChildChanged(DataSnapshot snapshot, String previousChildName) {
-					// TODO Auto-generated method stub
-
 				}
 
 				@Override
@@ -128,9 +110,8 @@ public class MainWindow {
 
 				@Override
 				public void onCancelled(DatabaseError error) {
-					// TODO Auto-generated method stub
-
 				}
+
 			});
 
 			mainTextBoxContent += "\nInitializing SSH session...";
@@ -147,30 +128,35 @@ public class MainWindow {
 
 			});
 
-			mainTextBoxContent += "\nSending request...";
+			mainTextBoxContent += "\nSending request";
 			refreshTextBox();
 
 			while (!initMsgSent) {
 
+				mainTextBoxContent += ".";
+				refreshTextBox();
+
 				try {
-					this.sleep(100);
+
+					Thread.sleep(100);
 
 				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
 				}
 
 			}
-			mainTextBoxContent += "Done.\nWaiting for reply...";
+			mainTextBoxContent += "Sent.\nWaiting for reply";
 			refreshTextBox();
 
 			while (!sshShellReady) {
 
+				mainTextBoxContent += ".";
+				refreshTextBox();
+
 				try {
-					this.sleep(100);
+
+					Thread.sleep(100);
+
 				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
 				}
 
 			}
@@ -178,13 +164,12 @@ public class MainWindow {
 			mainTextBoxContent += "\nShell ready";
 			refreshTextBox();
 
-			String databaseNode = "/Users/" + userName + "/Devices/" + remoteDevice + "/SSHShells/" + thisDevice;
-			shellResponse = FirebaseDatabase.getInstance().getReference(databaseNode);
+			shellResponse = FirebaseDatabase.getInstance()
+					.getReference("/Users/" + userName + "/Devices/" + remoteDevice + "/SSHShells/" + thisDevice);
 			shellResponse.addChildEventListener(new ChildEventListener() {
 
 				@Override
 				public void onChildRemoved(DataSnapshot snapshot) {
-
 				}
 
 				@Override
@@ -194,20 +179,20 @@ public class MainWindow {
 				@Override
 				public void onChildChanged(DataSnapshot snapshot, String previousChildName) {
 					//
-					
-					String support=snapshot.getValue().toString().replace('\u0000', ' ');
+
+					String support = snapshot.getValue().toString().replace('\u0000', ' ');
 					mainTextBoxContent = support;
 					refreshTextBox();
-					
+
 				}
 
 				@Override
 				public void onChildAdded(DataSnapshot snapshot, String previousChildName) { // TODO
 					//
-					String support=snapshot.getValue().toString().replace('\u0000', ' ');
+					String support = snapshot.getValue().toString().replace('\u0000', ' ');
 					mainTextBoxContent = support;
 					refreshTextBox();
-					
+
 				}
 
 				@Override
@@ -218,6 +203,8 @@ public class MainWindow {
 
 			mainTextBoxContent += "\nListener initialized";
 			refreshTextBox();
+
+			new Timer().scheduleAtFixedRate(new BufferFlush(), 0, 500);
 
 		}
 
@@ -242,34 +229,67 @@ public class MainWindow {
 	 * Open the window.
 	 */
 	public void open() {
+
 		Display display = Display.getDefault();
 		createContents();
 		shell.open();
 		shell.layout();
 
+		// inizia la connessione al database
+		mainTextBoxContent = "Connecting to Firebase Database...";
+		refreshTextBox();
+
+		if (connectToFirebaseDatabase()) {
+
+			mainTextBoxContent += "\nSuccessfully connected.";
+
+			// avvia il thread di comunicazione con la shell
+			new ShellComm().start();
+
+		} else {
+
+			mainTextBoxContent += "\nConnection error.";
+
+		}
+
+		refreshTextBox();
+
 		display.addFilter(SWT.KeyDown, new Listener() {
 			@Override
 			public void handleEvent(Event event) {
-				
-				switch(event.keyCode){
-				
+
+				switch (event.keyCode) {
+
+				case SWT.ARROW_LEFT:
+					sendSpecialKeyToConsole("keyLeft");
+					break;
+
+				case SWT.ARROW_RIGHT:
+					sendSpecialKeyToConsole("keyRight");
+					break;
+
+				case SWT.ARROW_UP:
+					sendSpecialKeyToConsole("keyUp");
+					break;
+
+				case SWT.ARROW_DOWN:
+					sendSpecialKeyToConsole("keyDown");
+					break;
+
 				case 13:
 					out.write('\n');
 					sendToConsole();
 					break;
-					
+
 				default:
 					out.write(event.character);
 				}
 
+				System.out.println(event.keyCode + " - (" + event.character + ")");
+
 			}
 
 		});
-
-		ShellComm shellComm = new ShellComm();
-		shellComm.start();
-		
-		
 
 		while (!shell.isDisposed()) {
 			if (!display.readAndDispatch()) {
@@ -277,11 +297,11 @@ public class MainWindow {
 			}
 
 		}
-		
+
 		disconnectShell();
-		
-		while(isConnected){
-			
+
+		while (isConnected) {
+
 			try {
 				System.out.println("waiting for disconnection");
 				Thread.sleep(1000);
@@ -289,11 +309,10 @@ public class MainWindow {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-			
+
 		}
-		
+
 		System.exit(0);
-		
 
 	}
 
@@ -307,7 +326,7 @@ public class MainWindow {
 			@Override
 			public void onComplete(DatabaseError error, DatabaseReference ref) {
 				System.out.println("termination message sent");
-				isConnected=false;
+				isConnected = false;
 
 			}
 
@@ -360,32 +379,43 @@ public class MainWindow {
 
 			@Override
 			public void run() {
-				System.out.println("------------------");
+
 				text.setText(mainTextBoxContent);
-				System.out.println(mainTextBoxContent);
-				
+
 			}
 
 		});
 
 	}
-	
-	private void sendToConsole(){
-		
-		if(messagesToRemoteDevice!=null && out!=null){
-			
+
+	private void sendToConsole() {
+
+		if (messagesToRemoteDevice != null && out.size() > 0) {
+
 			try {
+				//
+
 				out.flush();
-				messagesToRemoteDevice.child(""+System.currentTimeMillis()).setValue(new RemoteCommand("__ssh_input_command",out.toString(), thisDevice));
-				out=new ByteArrayOutputStream();
+				messagesToRemoteDevice.child("" + System.currentTimeMillis())
+						.setValue(new RemoteCommand("__ssh_input_command", out.toString(), thisDevice));
+				out = new ByteArrayOutputStream();
+
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
 			}
 
-		
 		}
-		
+
+	}
+
+	private void sendSpecialKeyToConsole(String specialKey) {
+
+		if (messagesToRemoteDevice != null) {
+
+			messagesToRemoteDevice.child("" + System.currentTimeMillis())
+					.setValue(new RemoteCommand("__ssh_special", specialKey, thisDevice));
+
+		}
+
 	}
 
 }
